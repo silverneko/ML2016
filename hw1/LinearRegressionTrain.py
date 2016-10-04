@@ -10,8 +10,8 @@ def loadTrainingData(Filename):
     X = [[] for _ in range(18)]
     for i in range(1, len(lines), 18):
         for j in range(18):
-            data = lines[i+j].rstrip("\r\n").split(",")
-            X[j].extend(data[3:])
+            row = lines[i+j].rstrip("\r\n").split(",")
+            X[j].extend(row[3:])
 
     for i in range(len(X[10])):
         if X[10][i] == "NR":
@@ -54,10 +54,14 @@ def L(B, C, X):
     return W
 
 def main():
-    X = loadTrainingData(argv[2])
-    B, C = loadCoefficient(argv[1])
+    X = loadTrainingData(argv[1])
+    B, C = loadCoefficient(argv[2])
+    if len(argv) > 3:
+        Iterations = int(argv[3])
+    else:
+        Iterations = 10000
+
     Alpha = 0.000001
-    Iterations = 10000
     for _ in range(Iterations):
         if _ % 100 == 0:
             print (L(B, C, X) / (len(X) - 9))
