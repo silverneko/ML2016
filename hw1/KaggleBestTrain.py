@@ -1,113 +1,84 @@
 from sys import argv
 import math
+import numpy as np
 
-CoefDataFile = open(argv[1], "r")
-TrainDataFile = open(argv[2], "r")
-OutputCoef = open("coefficient_best.csv", "w")
+def loadTrainingData(Filename):
+    TrainDataFile = open(Filename, "r")
+    lines = TrainDataFile.readlines()
+    TrainDataFile.close()
 
-TrainData = []
-for line in TrainDataFile:
-    TrainData.append(line.rstrip("\r\n").split(","))
-TrainData.pop(0)
+    X = [[] for _ in range(18)]
+    for i in range(1, len(lines), 18):
+        for j in range(18):
+            data = lines[i+j].rstrip("\r\n").split(",")
+            X[j].extend(data[3:])
 
-N = 18
-X = [[] for _ in range(N)]
-for i in range(len(TrainData) / N):
-    for j in range(N):
-        index = i * N + j
-        X[j].extend(TrainData[index][3:])
+    for i in range(len(X[10])):
+        if X[10][i] == "NR":
+            X[10][i] = 0.0
 
-for i in range(len(X[10])):
-    if X[10][i] == "NR":
-        X[10][i] = 0
-
-for row in X:
-    for i in range(len(row)):
-        row[i] = float(row[i])
-
-def Transpose(A):
-    B = [[] for _ in range(len(A[0]))]
-    for row in A:
+    for row in X:
         for i in range(len(row)):
-            B[i].append(row[i])
-    return B
+            row[i] = float(row[i])
 
-X = Transpose(X)
+    return np.array(X).T
+
+def loadCoefficient(Filename):
+    File = open(Filename, "r")
+    lines = File.readlines()
+    File.close()
+    B = float(lines[0].rstrip("\r\n"))
+    Input = []
+    for i in range(1, len(lines)):
+        Input.append([float(s) for s in lines[i].rstrip("\r\n").split(",")])
+    C = np.array(Input)
+    return B, C
+
+def saveCoefficient(Filename, B, C):
+    File = open(Filename, "w")
+    File.write(str(B))
+    File.write("\n")
+    for row in C:
+        File.write(",".join([str(e) for e in row]))
+        File.write("\n")
+    File.close()
 
 def F(B, C, X):
-    R = B
-    for i in range(len(X)):
-        for j in range(N):
-            R += C[i][j] * X[i][j]
-    return R
+    return (C * X).sum() + B
 
 def L(B, C, X):
     W = 0.0
     for i in range(9, len(X)):
         Y = F(B, C, X[i-9:i])
-        W += (X[i][9] - Y) ** 2
+        W += (X[i, 9] - Y) ** 2
     return W
 
-B = 0.0
-C = [[0.0 for _ in range(N)] for _ in range(9)]
-Input = []
-for line in CoefDataFile:
-    Input.append([float(s) for s in line.rstrip("\r\n").split(",")])
-B = Input[0][0]
-for i in range(9):
-    for j in range(N):
-        C[i][j] = Input[i+1][j]
+def main():
+    X = loadTrainingData(argv[2])
+    B, C = loadCoefficient(argv[1])
+    Alpha = 0.01
+    AccuGradB = 0.0
+    AccuGradC = np.zeros((9, 18))
+    Iterations = 10000
+    for _ in range(Iterations):
+        if _ % 100 == 0:
+            print (L(B, C, X) / (len(X) - 9))
+            saveCoefficient("coefficient_best.csv", B, C)
 
-Alpha = 0.01
-AccuGradB = 0.0
-AccuGradC = [[0.0 for _ in range(N)] for _ in range(9)]
-Iterations = 10000
-for _ in range(Iterations):
-    if _ % 25 == 0:
-        OutputCoef.seek(0)
-        OutputCoef.truncate()
-        OutputCoef.write(str(B))
-        OutputCoef.write("\n")
-        for row in C:
-            OutputCoef.write(",".join([str(e) for e in row]))
-            OutputCoef.write("\n")
-        OutputCoef.flush()
+        GradB = 0.0
+        GradC = np.zeros((9, 18))
+        for i in range(9, len(X)):
+            Y = F(B, C, X[i-9:i])
+            GradB += (Y - X[i, 9])
+            GradC += (Y - X[i, 9]) * X[i-9:i]
+        GradB /= (len(X) - 9)
+        GradC /= (len(X) - 9)
+        AccuGradB += GradB ** 2
+        AccuGradC += GradC ** 2
+        B -= Alpha * GradB / math.sqrt(AccuGradB)
+        C -= Alpha * GradC / np.sqrt(AccuGradC)
 
-    # print (L(B, C, X) / (len(X) - 9))
-    W = 0.0
+    saveCoefficient("coefficient_best.csv", B, C)
 
-    GradB = 0.0
-    GradC = [[0.0 for _ in range(N)] for _ in range(9)]
-    for i in range(9, len(X)):
-        Y = F(B, C, X[i-9:i])
-        W += (X[i][9] - Y) ** 2
-        GradB += (Y - X[i][9])
-        for j in range(9):
-            for k in range(N):
-                GradC[j][k] += (Y - X[i][9]) * X[i-9+j][k]
-
-    print (W / (len(X) - 9))
-
-    GradB /= (len(X) - 9)
-    AccuGradB += GradB ** 2
-    for i in range(9):
-        for j in range(N):
-            GradC[i][j] /= (len(X) - 9)
-            AccuGradC[i][j] += GradC[i][j] ** 2
-
-    B -= Alpha * GradB / math.sqrt(AccuGradB)
-    for i in range(9):
-        for j in range(N):
-            C[i][j] -= Alpha * GradC[i][j] / math.sqrt(AccuGradC[i][j])
-
-OutputCoef.seek(0)
-OutputCoef.truncate()
-OutputCoef.write(str(B))
-OutputCoef.write("\n")
-for row in C:
-    OutputCoef.write(",".join([str(e) for e in row]))
-    OutputCoef.write("\n")
-
-CoefDataFile.close()
-TrainDataFile.close()
-OutputCoef.close()
+if __name__ == "__main__":
+    main()
