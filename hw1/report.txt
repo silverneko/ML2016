@@ -1,0 +1,16 @@
+Learning rate = 0.000001
+Iterations = 20000
+(20000, 73.651549714979325)
+
+Learning rate = 0.0000001
+Iterations = 20000
+(20000, 181.09477263867058)
+
+Adagrad
+(1400, 71.73358799010559)
+(20000, 34.584058764315643)
+
+Regularization
+smoothness = 0.1, error(public set) = 5.93850
+smoothness = 1, error = 5.94504
+smoothness = 10, error = 6.20823

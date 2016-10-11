@@ -8,10 +8,20 @@ def loadCoefficient(Filename):
     File.close()
     B = float(lines[0].rstrip("\r\n"))
     Input = []
-    for i in range(1, len(lines)):
+    for i in range(1, 10):
         Input.append([float(s) for s in lines[i].rstrip("\r\n").split(",")])
     C = np.array(Input)
-    return B, C
+    Input = []
+    for i in range(10, 19):
+        Input.append([float(s) for s in lines[i].rstrip("\r\n").split(",")])
+    normalized_attr = (np.array(Input),)
+    Input = []
+    for i in range(19, 28):
+        Input.append([float(s) for s in lines[i].rstrip("\r\n").split(",")])
+    normalized_attr = normalized_attr + (np.array(Input),)
+    normalized_attr += tuple([float(s) for s in lines[28].rstrip("\r\n").split(",")])
+
+    return B, C, normalized_attr
 
 def loadTestData(Filename):
     File = open(Filename, "r")
@@ -37,6 +47,10 @@ def loadTestData(Filename):
 
     return Input
 
+def Normalize(X, normalized_attr):
+    for i in range(len(X)):
+        X[i] = X[i][0], (X[i][1] - normalized_attr[0]) / normalized_attr[1]
+
 def F(B, C, X):
     return (C * X).sum() + B
 
@@ -48,9 +62,11 @@ def main():
     OutputFile.write("id,value\n")
 
     TestSets = loadTestData(argv[1])
-    B, C = loadCoefficient(argv[2])
+    B, C, normalized_attr = loadCoefficient(argv[2])
+    Normalize(TestSets, normalized_attr)
     for (Id, X) in TestSets:
         Y = F(B, C, X)
+        Y = Y * normalized_attr[3] + normalized_attr[2]
         OutputFile.write("%s,%f\n" % (Id, Y))
 
     OutputFile.close()
