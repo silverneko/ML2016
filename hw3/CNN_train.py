@@ -55,14 +55,11 @@ def main():
     Model.add(MaxPooling2D((2, 2)))
     Model.add(Convolution2D(50, 3, 3))
     Model.add(MaxPooling2D((2, 2)))
-    Model.add(Convolution2D(100, 3, 3))
     Model.add(Flatten())
-    # Dim = 1600
+    # Dim = 1800
     Model.add(Dense(output_dim = 400))
     Model.add(Activation('relu'))
     Model.add(Dense(output_dim = 100))
-    Model.add(Activation('relu'))
-    Model.add(Dense(output_dim = 25))
     Model.add(Activation('relu'))
     Model.add(Dense(output_dim = 10))
     Model.add(Activation('softmax'))
@@ -79,6 +76,9 @@ def main():
 
         gather = zip(map((lambda e: e.max()), Y_), range(len(Y_)))
         gather = sorted(gather, reverse=True)
+
+        print(gather[Size-1][0])
+
         gather = list(map((lambda e: e[1]), gather))[:Size]
         extendX = []
         extendY = []
