@@ -3,12 +3,15 @@
 from sys import argv, stderr
 import pickle
 import numpy as np
+import random
+import math
 import keras
 from keras.models import Sequential
-from keras.layers import Dense, Activation
+from keras.layers import Dense, Activation, Dropout
 from keras.layers import Convolution2D, MaxPooling2D, Flatten
 from keras.backend import set_image_dim_ordering
-from keras.optimizers import SGD, Adagrad
+from keras.optimizers import SGD, Adagrad, RMSprop, Adam, Adadelta
+from keras.preprocessing.image import ImageDataGenerator
 
 def die(msg):
     print(msg, file = stderr)
@@ -41,63 +44,111 @@ def processUnlabel(Data):
                         ])
     return np.array(Result)
 
+def populateModel(Model):
+    Model.add(Convolution2D(32, 3, 3, input_shape = (3, 32, 32)))
+    Model.add(Activation('relu'))
+    Model.add(Convolution2D(32, 3, 3))
+    Model.add(Activation('relu'))
+    Model.add(MaxPooling2D((2, 2)))
+    Model.add(Dropout(0.25))
+    Model.add(Convolution2D(64, 3, 3))
+    Model.add(Activation('relu'))
+    Model.add(MaxPooling2D((2, 2)))
+    Model.add(Dropout(0.25))
+    Model.add(Flatten())
+    Model.add(Dense(output_dim = 256))
+    Model.add(Activation('relu'))
+    Model.add(Dense(output_dim = 256))
+    Model.add(Activation('relu'))
+    Model.add(Dropout(0.25))
+    Model.add(Dense(output_dim = 10))
+    Model.add(Activation('softmax'))
+
+def entropy(P):
+    result = 0.0
+    for p in P:
+        if p > 0.0:
+            result += p * math.log10(p)
+    result *= -1
+    return result
+
 def main():
+    MakeValidationSet = False
+
     if len(argv) != 4:
         die('Usage: {} [labeled data] [unlabeled data] [model]'
             .format(argv[0]))
 
+    set_image_dim_ordering('th')
+
     X, Y = processData(pickle.load(open(argv[1], 'rb')))
     X_ = processUnlabel(pickle.load(open(argv[2], 'rb')))
+    X = X / 255.0
+    X_ = X_ / 255.0
 
-    set_image_dim_ordering('th')
+    # Make validation set
+    if MakeValidationSet:
+        XY = list(zip(X, Y))
+        random.shuffle(XY)
+        X, Y = zip(*XY[:4500])
+        X_test, Y_test = zip(*XY[4500:])
+        X = np.array(X)
+        Y = np.array(Y)
+        X_test = np.array(X_test)
+        Y_test = np.array(Y_test)
+
     Model = Sequential()
-    Model.add(Convolution2D(25, 3, 3, input_shape = (3, 32, 32)))
-    Model.add(MaxPooling2D((2, 2)))
-    Model.add(Convolution2D(50, 3, 3))
-    Model.add(MaxPooling2D((2, 2)))
-    Model.add(Flatten())
-    # Dim = 1800
-    Model.add(Dense(output_dim = 400))
-    Model.add(Activation('relu'))
-    Model.add(Dense(output_dim = 100))
-    Model.add(Activation('relu'))
-    Model.add(Dense(output_dim = 10))
-    Model.add(Activation('softmax'))
-
-    Opt = SGD(lr = 1e-5)
-    Model.compile(optimizer = Opt, loss = 'categorical_crossentropy',
+    populateModel(Model)
+    Model.compile(optimizer = 'adam', loss = 'categorical_crossentropy',
                   metrics = ['accuracy'])
-    Model.fit(X, Y, verbose = 2, batch_size = 32, nb_epoch = 30)
 
-    Sizes = [1000] * 20 + [5000] * 5
-    for Size in Sizes:
-        Y_ = Model.predict(X_, verbose = 1)
-        print('\n')
+    Datagen = ImageDataGenerator(horizontal_flip = True,
+                                 width_shift_range = 0.1,
+                                 height_shift_range = 0.1,
+                                 rotation_range = 10)
+    if MakeValidationSet:
+        Model.fit_generator(Datagen.flow(X, Y, batch_size = 32),
+                            samples_per_epoch = X.shape[0],
+                            nb_epoch = 60,
+                            validation_data = (X_test, Y_test))
+    else:
+        Model.fit_generator(Datagen.flow(X, Y, batch_size = 32),
+                            samples_per_epoch = X.shape[0],
+                            nb_epoch = 60)
 
-        gather = zip(map((lambda e: e.max()), Y_), range(len(Y_)))
-        gather = sorted(gather, reverse=True)
+    Y_ = Model.predict(X_, verbose = 1)
+    print('')
 
-        print(gather[Size-1][0])
+    pv = enumerate([entropy(e) for e in Y_])
+    gather = [e[0] for e in filter((lambda e: e[1] < 0.1), pv)]
 
-        gather = list(map((lambda e: e[1]), gather))[:Size]
-        extendX = []
-        extendY = []
-        for i in gather:
-            Label = 0
-            for j in range(1, 10):
-                if Y_[i][j] > Y_[i][Label]:
-                    Label = j
-            extendX.append(X_[i])
-            extendY.append([1 if e == Label else 0 for e in range(10)])
-        X = np.append(X, extendX, axis=0)
-        Y = np.append(Y, extendY, axis=0)
-        X_ = np.delete(X_, gather, axis=0)
+    extendX = []
+    extendY = []
+    for i in gather:
+        Label = 0
+        for j in range(1, 10):
+            if Y_[i][j] > Y_[i][Label]:
+                Label = j
+        extendX.append(X_[i])
+        extendY.append([1 if e == Label else 0 for e in range(10)])
+    X = np.append(X, extendX, axis = 0)
+    Y = np.append(Y, extendY, axis = 0)
 
-        Model.fit(X, Y, verbose = 2, batch_size = 32, nb_epoch = 5)
+    Model2 = Sequential()
+    populateModel(Model2)
+    Model2.compile(optimizer = 'adam', loss = 'categorical_crossentropy',
+                  metrics = ['accuracy'])
+    if MakeValidationSet:
+        Model2.fit_generator(Datagen.flow(X, Y, batch_size = 32),
+                                samples_per_epoch = X.shape[0],
+                                nb_epoch = 100,
+                                validation_data = (X_test, Y_test))
+    else:
+        Model2.fit_generator(Datagen.flow(X, Y, batch_size = 32),
+                                samples_per_epoch = X.shape[0],
+                                nb_epoch = 100)
 
-    Model.fit(X, Y, verbose = 2, batch_size = 32, nb_epoch = 5)
-
-    Model.save(argv[3])
+    Model2.save(argv[3])
     return 0
 
 if __name__ == '__main__': main()

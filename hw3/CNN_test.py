@@ -36,11 +36,13 @@ def main():
         die('Usage: {} [test data] [model] [output]'
             .format(argv[0]))
 
-    TestID, TestData = processTest(pickle.load(open(argv[1], 'rb')))
-
     set_image_dim_ordering('th')
+
+    TestID, TestData = processTest(pickle.load(open(argv[1], 'rb')))
+    TestData = TestData / 255.0
+
     Model = keras.models.load_model(argv[2])
-    TestLabel = Model.predict(TestData, verbose = 1)
+    TestLabel = Model.predict(TestData)
 
     Output = open(argv[3], 'w')
     Output.write("ID,class\n")
