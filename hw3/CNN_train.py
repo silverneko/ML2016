@@ -9,9 +9,11 @@ import keras
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Dropout
 from keras.layers import Convolution2D, MaxPooling2D, Flatten
+from keras.layers import Input, UpSampling2D
 from keras.backend import set_image_dim_ordering
 from keras.optimizers import SGD, Adagrad, RMSprop, Adam, Adadelta
 from keras.preprocessing.image import ImageDataGenerator
+from sklearn import svm
 
 def die(msg):
     print(msg, file = stderr)
@@ -32,7 +34,7 @@ def processData(Data):
             Result.append([unFlatten(e) for e in
                            [Datum[:1024], Datum[1024:2048], Datum[2048:3072]]
                            ])
-            Label.append([1 if e == i else 0 for e in range(10)])
+            Label.append(i)
     return np.array(Result), np.array(Label)
 
 def processUnlabel(Data):
@@ -86,6 +88,69 @@ def main():
     X = X / 255.0
     X_ = X_ / 255.0
 
+    Datagen = ImageDataGenerator(horizontal_flip = True,
+                                 width_shift_range = 0.1,
+                                 height_shift_range = 0.1,
+                                 rotation_range = 10)
+
+    input_img = Input(shape = (3, 32, 32))
+    x = Convolution2D(16, 3, 3, border_mode = 'same')(input_img)
+    x = Activation('relu')(x)
+    x = MaxPooling2D((2, 2))(x)
+    x = Convolution2D(8, 3, 3, border_mode = 'same')(x)
+    x = Activation('relu')(x)
+    x = MaxPooling2D((2, 2))(x)
+    x = Convolution2D(8, 3, 3, border_mode = 'same')(x)
+    x = Activation('relu')(x)
+    encoded = MaxPooling2D((2, 2))(x)
+    encoded_feature = Flatten()(encoded)
+
+    x = Convolution2D(8, 3, 3, border_mode = 'same')(encoded)
+    x = Activation('relu')(x)
+    x = UpSampling2D((2, 2))(x)
+    x = Convolution2D(8, 3, 3, border_mode = 'same')(x)
+    x = Activation('relu')(x)
+    x = UpSampling2D((2, 2))(x)
+    x = Convolution2D(16, 3, 3, border_mode = 'same')(x)
+    x = Activation('relu')(x)
+    x = UpSampling2D((2, 2))(x)
+    x = Convolution2D(3, 3, 3, border_mode = 'same')(x)
+    decoded = Activation('relu')(x)
+
+    Autoencoder = keras.models.Model(input_img, decoded)
+    Autoencoder.compile(optimizer = 'adam', loss = 'binary_crossentropy')
+
+    X_all = np.append(X, X_, axis = 0)
+    def Gen():
+        for x in Datagen.flow(X_all, batch_size = 32):
+            yield (x, x)
+
+    Autoencoder.fit_generator(Gen(),
+                              samples_per_epoch = X_all.shape[0],
+                              nb_epoch = 50)
+
+    import matplotlib.pyplot as plt
+    x_test = X[:10]
+    decoded_imgs = Autoencoder.predict(x_test)
+    n = 10  # how many digits we will display
+    plt.figure(figsize=(20, 4))
+    for i in range(n):
+        # display original
+        ax = plt.subplot(2, n, i + 1)
+        plt.imshow(x_test[i][0])
+        plt.gray()
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+        # display reconstruction
+        ax = plt.subplot(2, n, i + 1 + n)
+        plt.imshow(decoded_imgs[i][0])
+        plt.gray()
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+    plt.show()
+
+    Encoder = keras.models.Model(input_img, encoded_feature)
+
     # Make validation set
     if MakeValidationSet:
         XY = list(zip(X, Y))
@@ -95,60 +160,40 @@ def main():
         X = np.array(X)
         Y = np.array(Y)
         X_test = np.array(X_test)
+        Y_test = [[1 if e == i else 0 for i in range(10)] for e in Y_test]
         Y_test = np.array(Y_test)
+
+    X_encode = Encoder.predict(X)
+    clf = svm.SVC()
+    clf.fit(X_encode, Y)
+    X_unlabel_encode = Encoder.predict(X_)
+    Y_ = clf.predict(X_unlabel_encode)
+
+    Y = [[1 if e == i else 0 for i in range(10)] for e in Y]
+    Y_ = [[1 if e == i else 0 for i in range(10)] for e in Y_]
+    Y = np.array(Y)
+    Y_ = np.array(Y_)
+
+    X = np.append(X, X_, axis = 0)
+    Y = np.append(Y, Y_, axis = 0)
 
     Model = Sequential()
     populateModel(Model)
     Model.compile(optimizer = 'adam', loss = 'categorical_crossentropy',
                   metrics = ['accuracy'])
 
-    Datagen = ImageDataGenerator(horizontal_flip = True,
-                                 width_shift_range = 0.1,
-                                 height_shift_range = 0.1,
-                                 rotation_range = 10)
     if MakeValidationSet:
         Model.fit_generator(Datagen.flow(X, Y, batch_size = 32),
                             samples_per_epoch = X.shape[0],
-                            nb_epoch = 60,
+                            nb_epoch = 100,
                             validation_data = (X_test, Y_test))
     else:
         Model.fit_generator(Datagen.flow(X, Y, batch_size = 32),
                             samples_per_epoch = X.shape[0],
-                            nb_epoch = 60)
+                            nb_epoch = 100)
 
-    Y_ = Model.predict(X_, verbose = 1)
-    print('')
 
-    pv = enumerate([entropy(e) for e in Y_])
-    gather = [e[0] for e in filter((lambda e: e[1] < 0.1), pv)]
-
-    extendX = []
-    extendY = []
-    for i in gather:
-        Label = 0
-        for j in range(1, 10):
-            if Y_[i][j] > Y_[i][Label]:
-                Label = j
-        extendX.append(X_[i])
-        extendY.append([1 if e == Label else 0 for e in range(10)])
-    X = np.append(X, extendX, axis = 0)
-    Y = np.append(Y, extendY, axis = 0)
-
-    Model2 = Sequential()
-    populateModel(Model2)
-    Model2.compile(optimizer = 'adam', loss = 'categorical_crossentropy',
-                  metrics = ['accuracy'])
-    if MakeValidationSet:
-        Model2.fit_generator(Datagen.flow(X, Y, batch_size = 32),
-                                samples_per_epoch = X.shape[0],
-                                nb_epoch = 100,
-                                validation_data = (X_test, Y_test))
-    else:
-        Model2.fit_generator(Datagen.flow(X, Y, batch_size = 32),
-                                samples_per_epoch = X.shape[0],
-                                nb_epoch = 100)
-
-    Model2.save(argv[3])
+    Model.save(argv[3])
     return 0
 
 if __name__ == '__main__': main()
