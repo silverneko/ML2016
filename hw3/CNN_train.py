@@ -129,6 +129,7 @@ def main():
                               samples_per_epoch = X_all.shape[0],
                               nb_epoch = 50)
 
+    """
     import matplotlib.pyplot as plt
     x_test = X[:10]
     decoded_imgs = Autoencoder.predict(x_test)
@@ -148,6 +149,7 @@ def main():
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
     plt.show()
+    """
 
     Encoder = keras.models.Model(input_img, encoded_feature)
 
